@@ -52,6 +52,22 @@ class DynamicsAdaptation(Signal):
     use_dq : boolean, optional (Default: False)
         set True to pass in position and velocity,
         False if only passing in position
+    trial: int, optional (Default: None)
+        if doing multiple trials of n runs to average over.
+        if set to None it will search for the most recent trial
+        to save to, saving to 'trial0' if none exist
+    run: int, optional (Default: None)
+        the current run number. This value will automatically
+        increment based on the last run saved in the test_name
+        folder. The user can specify a run if they desire to
+        overwrite a previous run. If set to None then the test_name
+        folder will be searched for the next run to save as
+    test_name: string, optional (Default: 'test')
+        the test name to save the weights under
+    autoload: boolean, optional (Default: False)
+        set true if you would like the script to check the 'test_name'
+        directory for the most recent saved weights, False to start
+        with a zeros array of weights, or a specified 'weights_file'
     """
 
     def __init__(self, robot_config,
@@ -63,20 +79,27 @@ class DynamicsAdaptation(Signal):
                  filter_error=False,
                  weights_file=None,
                  backend='nengo',
-                 use_dq=False):
+                 use_dq=False,
+                 trial=None,
+                 run=None,
+                 test_name='test',
+                 autoload=False):
         self.robot_config = robot_config
-
         self.u_adapt = np.zeros(self.robot_config.N_JOINTS)
-
         self.use_dq = use_dq
+        self.n_adapt_pop = n_adapt_pop
 
         if self.use_dq is True:
             self.N_INPUTS = 2
         else:
             self.N_INPUTS = 1
 
-        weights_file = (['']*n_adapt_pop if
-                        weights_file is None else weights_file)
+        # if a weights_file is not specified and auto_load is desired,
+        # check the test_name directory for the most recent weights
+        if weights_file is None and not autoload:
+            weights_file = ['']*self.n_adapt_pop
+        elif weights_file is None and autoload:
+            weights_file = self.load_weights(trial=trial,run=run, test_name=test_name)
 
         dim = self.robot_config.N_JOINTS
         nengo_model = nengo.Network(seed=10)
@@ -114,7 +137,7 @@ class DynamicsAdaptation(Signal):
 
             self.adapt_ens = []
             conn_learn = []
-            for ii in range(n_adapt_pop):
+            for ii in range(self.n_adapt_pop):
                 N_DIMS = self.robot_config.N_JOINTS * self.N_INPUTS
                 intercepts = AreaIntercepts(
                     dimensions=N_DIMS,
@@ -148,15 +171,30 @@ class DynamicsAdaptation(Signal):
                     synapse=0.005)
 
                 # load weights from file if they exist, otherwise use zeros
-                print('weights file: %s' % weights_file[ii])
-                if os.path.isfile('%s' % weights_file[ii]):
-                    transform = np.load(weights_file[ii])['weights'][-1][0]
-                    print('Loading transform: \n', transform)
-                    print('Transform all zeros: ', np.allclose(transform, 0))
+                weights_file = os.path.expanduser(weights_file)
+                print('Backend: ', backend)
+                print('Weights file: %s' % weights_file)
+
+                if backend == 'nengo_spinnaker':
+                    if os.path.isfile('%s' % weights_file):
+                        transform = np.load(weights_file)['weights']
+                        transform = np.squeeze(transform).T
+                        print('Loading transform: \n', transform)
+                        print('Transform all zeros: ', np.allclose(transform, 0))
+                    else:
+                        print('Transform is zeros')
+                        transform = np.zeros((self.adapt_ens[ii].n_neurons,
+                                              self.robot_config.N_JOINTS)).T
                 else:
-                    print('Transform is zeros')
-                    transform = np.zeros((self.adapt_ens[ii].n_neurons,
-                                          self.robot_config.N_JOINTS)).T
+                    if os.path.isfile('%s' % weights_file[ii]):
+                        transform = np.load(weights_file[ii])['weights'][-1][0]
+                        print('Loading transform: \n', transform)
+                        print('Transform all zeros: ', np.allclose(transform, 0))
+                    else:
+                        print('Transfom is zeros')
+                        transform = np.zeros((self.adapt_ens[ii].n_neurons,
+                                              self.robot_config.N_JOINTS)).T
+
                 # set up learning connections
                 if backend == 'nengo_spinnaker':
                     conn_learn.append(
@@ -277,7 +315,7 @@ class DynamicsAdaptation(Signal):
         # If no trial is specified, check if there is already one created, if not
         # then save the run to 'trial0'
         else:
-            prev_trials = glob.glob(test_name + '/trial*')
+            prev_trials = glob.glob(test_name + '/trial???')
             if prev_trials:
                 test_name = max(prev_trials)
             else:
@@ -325,6 +363,9 @@ class DynamicsAdaptation(Signal):
                 test_name + '/run%i' % (run_num + 1),
                 weights=([nengo_spinnaker.utils.learning.get_learnt_decoders(
                          self.sim, self.adapt_ens[0])]))
+            print('Spinnaker output: ', nengo_spinnaker.utils.learning.get_learnt_decoders(self.sim,
+                self.adapt_ens[0]))
+
         else:
             np.savez_compressed(
                 test_name + '/run%i' % (run_num + 1),
@@ -338,13 +379,13 @@ class DynamicsAdaptation(Signal):
         highest trial and run number.
         """
 
-        [test_name, run_num] = self.weights_location(self, **kwargs)
+        [test_name, run_num] = self.weights_location(**kwargs)
 
         if run_num == -1:
-            print('The weights file does not exist...')
-            print('Please omit the load_weights function to pass in a'
-                  + 'zero array as starting weights')
-        weights_file = test_name + run_num + '.npz'
+            print('No weights found in the specified directory...')
+            weights_file = ['']*self.n_adapt_pop
+        else:
+            weights_file = test_name + '/run%i.npz' % run_num
         return weights_file
 
 class DummySolver(nengo.solvers.Solver):
