@@ -102,8 +102,8 @@ class DynamicsAdaptation(Signal):
             weights_file = ['']*n_adapt_pop
 
         dim = self.robot_config.N_JOINTS
-        nengo_model = nengo.Network(seed=10)
-        with nengo_model:
+        self.nengo_model = nengo.Network(seed=10)
+        with self.nengo_model:
 
             # create a Node for passing in the scaled system feedback
             def qdq_input(t):
@@ -136,7 +136,7 @@ class DynamicsAdaptation(Signal):
             output = nengo.Node(u_adapt_output, size_in=dim, size_out=0)
 
             self.adapt_ens = []
-            conn_learn = []
+            self.conn_learn = []
             for ii in range(n_adapt_pop):
                 N_DIMS = self.robot_config.N_JOINTS * self.N_INPUTS
                 intercepts = AreaIntercepts(
@@ -198,14 +198,14 @@ class DynamicsAdaptation(Signal):
 
                 # set up learning connections
                 if backend == 'nengo_spinnaker':
-                    conn_learn.append(
+                    self.conn_learn.append(
                         nengo.Connection(
                             self.adapt_ens[ii],
                             output,
                             learning_rule_type=nengo.PES(pes_learning_rate),
                             solver=DummySolver(transform.T)))
                 else:
-                    conn_learn.append(
+                    self.conn_learn.append(
                         nengo.Connection(
                             self.adapt_ens[ii].neurons,
                             output,
@@ -220,7 +220,7 @@ class DynamicsAdaptation(Signal):
                         if np.linalg.norm(x) > 2.0:
                             x /= np.linalg.norm(x) * 0.5
                     return x
-                nengo.Connection(u_input, conn_learn[ii].learning_rule,
+                nengo.Connection(u_input, self.conn_learn[ii].learning_rule,
                                  # invert to provide error not reward
                                  transform=-1,
                                  function=gate_error,
@@ -228,7 +228,7 @@ class DynamicsAdaptation(Signal):
 
         nengo.cache.DecoderCache().invalidate()
         if backend == 'nengo':
-            self.sim = nengo.Simulator(nengo_model, dt=.001)
+            self.sim = nengo.Simulator(self.nengo_model, dt=.001)
         elif backend == 'nengo_ocl':
             try:
                 import nengo_ocl
@@ -238,14 +238,14 @@ class DynamicsAdaptation(Signal):
             import pyopencl as cl
             # Here, the context would be to use all devices from platform [0]
             ctx = cl.Context(cl.get_platforms()[0].get_devices())
-            self.sim = nengo_ocl.Simulator(nengo_model, context=ctx, dt=.001)
+            self.sim = nengo_ocl.Simulator(self.nengo_model, context=ctx, dt=.001)
         elif backend == 'nengo_spinnaker':
             try:
                 import nengo_spinnaker
             except ImportError:
                 raise Exception('Nengo SpiNNaker not installed, ' +
                                 'cannot use this backend.')
-            self.sim = nengo_spinnaker.Simulator(nengo_model)
+            self.sim = nengo_spinnaker.Simulator(self.nengo_model)
             self.q = np.zeros(self.robot_config.N_JOINTS)
             self.dq = np.zeros(self.robot_config.N_JOINTS)
             self.training_signal = np.zeros(self.robot_config.N_JOINTS)
@@ -373,7 +373,7 @@ class DynamicsAdaptation(Signal):
         else:
             np.savez_compressed(
                 test_name + '/run%i' % (run_num + 1),
-                weights=[self.sim.data[self.probe_weights[0]]])
+                weights=self.sim.signals[self.sim.model.sig[self.conn_learn[0]]['weights']])
 
     def load_weights(self, **kwargs):
         """ Loads the most recently saved weights unless otherwise specified
