@@ -23,7 +23,7 @@ class SecondOrder(PathPlanner):
     def __init__(self, robot_config):
         super(SecondOrder, self).__init__(robot_config)
 
-    def step(self, y, dy, target, w, zeta):
+    def step(self, y, dy, target, w, zeta, dt=0.001):
         """ Calculates the next state given the current state and
         system dynamics' parameters.
 
@@ -41,7 +41,9 @@ class SecondOrder(PathPlanner):
             the damping ratio
         """
         ddy = w**2 * target - dy * zeta * w - y * w**2
-        return dy, ddy
+        dy = dy + ddy * dt
+        y = y + dy * dt
+        return np.hstack((y, dy))
 
     def generate_path(self, state, target, n_timesteps=100,
                       plot=False, zeta=2.0, dt=0.001):
@@ -70,8 +72,7 @@ class SecondOrder(PathPlanner):
         for ii in range(n_timesteps):
             self.trajectory.append(np.copy(y))
             y += np.hstack(self.step(
-                y[:n_states], y[n_states:], target, w, zeta)
-                ) * dt
+                y[:n_states], y[n_states:], target, w, zeta, dt=dt))
         self.trajectory = np.array(self.trajectory)
 
         # reset trajectory index
