@@ -3,6 +3,7 @@ from .vrep_files import vrep
 
 from abr_control.utils import transformations
 from .interface import Interface
+from abr_control.interfaces.vrep_objects import GroupConfig
 
 
 # TODO: add ability to load models files so that vrep only has to be open
@@ -21,7 +22,6 @@ class VREP(Interface):
     dt : float, optional (Default: 0.001)
         simulation time step in seconds
     """
-
     def __init__(self, robot_config, dt=.001):
 
         super(VREP, self).__init__(robot_config)
@@ -328,3 +328,95 @@ class VREP(Interface):
             -1,  # set absolute, not relative position
             xyz,
             vrep.simx_opmode_blocking)
+
+    @staticmethod
+    def check_error_code(error_code):
+        """Display VREP error code if API call fails"""
+        if error_code != 0:
+            print('Call failure with code %d' % error_code)
+
+    def build_object(self, name, xyz, config=None):
+        """ Create a new composite object either randomly or with a config
+        specified beforehand (allows for replicating objects across sims)
+        """ 
+        object_handles = []
+
+        # use random config if none is specified
+        if not config:
+            config = GroupConfig(xyz)
+            config.random_configs(max_primitives=1)
+
+        # iterate over all of the configs and build corresponding objects
+        for object_config in config.all_object_configs:
+
+            print(object_config.inputFloats)
+
+            # use python API call for running generic Lua scripts in VREP
+            error_code, ints, floats, strings, buff = vrep.simxCallScriptFunction(
+                clientID=self.clientID,
+                scriptDescription=object_config.vrep_dummy,  # object with Lua script
+                options=vrep.sim_scripttype_childscript,  # kind of script being used 
+                functionName=object_config.vrep_function,  # function in Lua script
+                inputInts=object_config.inputInts,
+                inputFloats=object_config.inputFloats,
+                inputStrings=object_config.inputStrings,
+                inputBuffer=object_config.inputBuffer,
+                operationMode=vrep.simx_opmode_blocking)
+
+            self.check_error_code(error_code)
+            object_handles.append(ints[0])
+            print('Built object!')
+
+        # now use list of handles to group the objects into a composite whole
+        # note we only pass in list of ints for handles, don't need other stuff
+        error_code, ints, floats, strings, buff = vrep.simxCallScriptFunction(
+            clientID=self.clientID,
+            scriptDescription=config.vrep_dummy,
+            options=vrep.sim_scripttype_childscript,
+            functionName=config.vrep_function,
+            inputInts=object_handles,
+            inputFloats=[],
+            inputStrings=[],
+            inputBuffer=bytearray(),
+            operationMode=vrep.simx_opmode_blocking)
+
+        self.check_error_code(error_code)
+        self.misc_handles[name] = ints[0]  # add handle for grouped object
+
+    def remove_object(self, name):
+        """Destroys an object in VREP that was previously created"""
+        handle = self.misc_handles[name]
+        vrep.simxRemoveObject(self.clientID, handle, vrep.simx_opmode_blocking)
+
+    def get_mass(self, name):
+        """Get the total mass of an object"""
+        handle = self.misc_handles[name]
+        _, mass = vrep.simxGetObjectFloatParameter(
+            self.clientID, 
+            handle, 
+            3005,  # code for mass parameter
+            vrep.simx_opmode_blocking) 
+
+        return mass
+
+    def get_center_of_mass(self, name):
+        """Get the center of mass for a (possibly composite) object"""
+        handle = self.misc_handles[name]
+
+        error_code, ints, floats, strings, buff = vrep.simxCallScriptFunction(
+            clientID=self.clientID,
+            scriptDescription='ObjectGenerator',
+            options=vrep.sim_scripttype_childscript,
+            functionName='getMass_function',
+            inputInts=[handle],
+            inputFloats=[],
+            inputStrings=[],
+            inputBuffer= bytearray(),
+            operationMode=vrep.simx_opmode_blocking)
+
+        return floats
+
+
+
+
+
