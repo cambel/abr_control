@@ -34,7 +34,7 @@ try:
     feedback = interface.get_feedback()
     start = robot_config.Tx('EE', feedback['q'])
     # make the target offset from that start position
-    target_xyz = start + np.array([0.4, -0.2, -0.2])
+    target_xyz = start + np.array([1.0, 0.0, -0.4])
     interface.set_xyz(name='target', xyz=target_xyz)
 
     # run ctrl.generate once to load all functions
@@ -43,8 +43,11 @@ try:
     robot_config.orientation('EE', q=zeros)
 
     # build an object to grasp at the target location
-    interface.build_object('TestObject', xyz)
+    init_xyz = target_xyz - np.array([0.0, 0.0, 0.3])
+    interface.build_object('TestObject', init_xyz)
+    com = interface.get_center_of_mass('TestObject')
 
+    print('Center of Mass: {}, {}, {}'.format(*com))
     print('\nSimulation starting...\n')
 
     count = 0.0
