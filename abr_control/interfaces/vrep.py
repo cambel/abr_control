@@ -3,7 +3,7 @@ from .vrep_files import vrep
 
 from abr_control.utils import transformations
 from .interface import Interface
-from abr_control.interfaces.vrep_objects import GroupConfig
+from abr_control.interfaces.vrep_objects import ParentConfig
 
 
 # TODO: add ability to load models files so that vrep only has to be open
@@ -369,7 +369,7 @@ class VREP(Interface):
         # use random config if none is specified
         if not parent_config:
             parent_config = ParentConfig(xyz)
-            parent_config.make_random_children(max_primitives=1)
+            parent_config.make_random_children(n_primitives=1)
 
         # iterate over all child configs and build corresponding objects
         for child_config in parent_config.all_child_configs:
@@ -381,7 +381,6 @@ class VREP(Interface):
         # group built children into a single parent object
         parent_handle = self.call_build_script(parent_config)
 
-        self.check_error_code(error_code)
         self.misc_handles[name] = parent_handle  # add handle for parent
 
     def remove_object(self, name):

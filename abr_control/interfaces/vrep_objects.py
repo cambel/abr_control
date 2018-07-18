@@ -194,7 +194,7 @@ class ParentConfig(object):
     @property
     def inputInts(self):
         '''List of ints passed to Lua function in VREP'''
-        assert len(self.handles) > 0
+        assert len(self.built_handles) > 0
         return self.built_handles
     
     @property
