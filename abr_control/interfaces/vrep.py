@@ -39,6 +39,12 @@ class VREP(Interface):
         self.count = 0  # keep track of how many times send forces is called
         self.misc_handles = {}  # for tracking miscellaneous object handles
 
+    @staticmethod
+    def check_error_code(error_code):
+        """ Display VREP error code if API call fails"""
+        if error_code != 0:
+            print('Call failure with code %d' % error_code)
+
     def connect(self):
         """ Connect to the current scene open in VREP
 
@@ -329,67 +335,70 @@ class VREP(Interface):
             xyz,
             vrep.simx_opmode_blocking)
 
-    @staticmethod
-    def check_error_code(error_code):
-        """Display VREP error code if API call fails"""
-        if error_code != 0:
-            print('Call failure with code %d' % error_code)
 
-    def build_object(self, name, xyz, config=None):
-        """ Create a new composite object either randomly or with a config
-        specified beforehand (allows for replicating objects across sims)
-        """ 
-        object_handles = []
+    def call_build_script(self, config):
+        """ Use configuration to execute build function via VREP Lua script
 
-        # use random config if none is specified
-        if not config:
-            config = GroupConfig(xyz)
-            config.random_configs(max_primitives=1)
-
-        # iterate over all of the configs and build corresponding objects
-        for object_config in config.all_object_configs:
-
-            print(object_config.inputFloats)
-
-            # use python API call for running generic Lua scripts in VREP
-            error_code, ints, floats, strings, buff = vrep.simxCallScriptFunction(
-                clientID=self.clientID,
-                scriptDescription=object_config.vrep_dummy,  # object with Lua script
-                options=vrep.sim_scripttype_childscript,  # kind of script being used 
-                functionName=object_config.vrep_function,  # function in Lua script
-                inputInts=object_config.inputInts,
-                inputFloats=object_config.inputFloats,
-                inputStrings=object_config.inputStrings,
-                inputBuffer=object_config.inputBuffer,
-                operationMode=vrep.simx_opmode_blocking)
-
-            self.check_error_code(error_code)
-            object_handles.append(ints[0])
-            print('Built object!')
-
-        # now use list of handles to group the objects into a composite whole
-        # note we only pass in list of ints for handles, don't need other stuff
+        config : class instance
+            Specifies all attributes of the object being built.
+        """
         error_code, ints, floats, strings, buff = vrep.simxCallScriptFunction(
             clientID=self.clientID,
-            scriptDescription=config.vrep_dummy,
-            options=vrep.sim_scripttype_childscript,
-            functionName=config.vrep_function,
-            inputInts=object_handles,
-            inputFloats=[],
-            inputStrings=[],
-            inputBuffer=bytearray(),
+            scriptDescription=config.vrep_dummy,  # home of Lua script
+            options=vrep.sim_scripttype_childscript,  # kind of script 
+            functionName=config.vrep_function,  # function in script
+            inputInts=config.inputInts,
+            inputFloats=config.inputFloats,
+            inputStrings=config.inputStrings,
+            inputBuffer=config.inputBuffer,
             operationMode=vrep.simx_opmode_blocking)
 
         self.check_error_code(error_code)
-        self.misc_handles[name] = ints[0]  # add handle for grouped object
+        handle = ints[0]
+
+        return handle
+
+    def build_object(self, name, xyz, parent_config=None):
+        """ Create a new composite object either randomly or with a config
+        
+        name : string
+            the name of the object
+        xyz : np.array
+            the [x,y,z] location of the first primitive object [meters]
+        """
+        # use random config if none is specified
+        if not parent_config:
+            parent_config = ParentConfig(xyz)
+            parent_config.make_random_children(max_primitives=1)
+
+        # iterate over all child configs and build corresponding objects
+        for child_config in parent_config.all_child_configs:
+            child_handle = self.call_build_script(child_config)
+            
+            # to build parent, need vrep handles of built children 
+            parent_config.built_handles.append(child_handle)
+
+        # group built children into a single parent object
+        parent_handle = self.call_build_script(parent_config)
+
+        self.check_error_code(error_code)
+        self.misc_handles[name] = parent_handle  # add handle for parent
 
     def remove_object(self, name):
-        """Destroys an object in VREP that was previously created"""
+        """ Destroys an object in VREP that was previously created
+
+        name : string
+            the name of the object
+        """
         handle = self.misc_handles[name]
         vrep.simxRemoveObject(self.clientID, handle, vrep.simx_opmode_blocking)
 
     def get_mass(self, name):
-        """Get the total mass of an object"""
+        """ Get the total mass of an object
+
+        name : string
+            the name of the object
+        """
         handle = self.misc_handles[name]
         _, mass = vrep.simxGetObjectFloatParameter(
             self.clientID, 
@@ -400,7 +409,11 @@ class VREP(Interface):
         return mass
 
     def get_center_of_mass(self, name):
-        """Get the center of mass for a (possibly composite) object"""
+        """ Get the center of mass for a (possibly composite) object
+
+        name : string
+            the name of the object
+        """
         handle = self.misc_handles[name]
 
         error_code, ints, floats, strings, buff = vrep.simxCallScriptFunction(
@@ -415,8 +428,3 @@ class VREP(Interface):
             operationMode=vrep.simx_opmode_blocking)
 
         return floats
-
-
-
-
-
