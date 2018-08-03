@@ -160,9 +160,11 @@ class OSC(controller.Controller):
             u_task[:3] = -self.kv * (self.dx - target_vel -
                                      np.clip(sat / scale, 0, 1) *
                                      -self.lamb * scale * x_tilde)
+            self.u_vmax = u_task
         else:
             # generate (x,y,z) force without velocity limiting)
             u_task[:3] = -self.kp * x_tilde
+            self.u_vmax = u_task
 
         if self.use_dJ:
             # add in estimate of current acceleration
