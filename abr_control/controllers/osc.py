@@ -145,10 +145,13 @@ class OSC(controller.Controller):
         self.q = q
         Mx_inv = np.dot(J, np.dot(M_inv, J.T))
         self.Mx_inv = Mx_inv
-        # using the rcond to set singular values < thresh to 0
-        # is slightly faster than doing it manually with svd
-        # singular values < (rcond * max(singular_values)) set to 0
-        Mx = np.linalg.pinv(Mx_inv, rcond=.04)
+        if np.linalg.det(M) != 0:
+            Mx = np.linalg.inv(Mx_inv)
+        else:
+            # using the rcond to set singular values < thresh to 0
+            # is slightly faster than doing it manually with svd
+            # singular values < (rcond * max(singular_values)) set to 0
+            Mx = np.linalg.pinv(Mx_inv, rcond=.005)
         self.Mx = Mx
 
         u_task = np.zeros(3)  # task space control signal
