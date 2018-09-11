@@ -141,13 +141,9 @@ class OSC(controller.Controller):
         M_inv = np.linalg.inv(M)
         self.M_inv = M_inv
         # calculate the Jacobian for end-effector with no offset
-        JEE = self.robot_config.J(ref_frame, q)[:3]
         self.ref_frame = ref_frame
-        if ref_frame != 'EE':
-            print(ref_frame)
         self.q = q
-        self.JEE = JEE
-        Mx_inv = np.dot(JEE, np.dot(M_inv, JEE.T))
+        Mx_inv = np.dot(J, np.dot(M_inv, J.T))
         self.Mx_inv = Mx_inv
         # using the rcond to set singular values < thresh to 0
         # is slightly faster than doing it manually with svd
@@ -231,7 +227,7 @@ class OSC(controller.Controller):
 
             u_null = np.dot(M, (self.nkp * q_des - self.nkv * self.dq_des))
 
-            Jbar = np.dot(M_inv, np.dot(JEE.T, Mx))
+            Jbar = np.dot(M_inv, np.dot(J.T, Mx))
             null_filter = (self.IDENTITY_N_JOINTS - np.dot(J.T, Jbar.T))
 
             u += np.dot(null_filter, u_null)
