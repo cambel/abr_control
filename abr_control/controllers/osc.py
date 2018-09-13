@@ -71,6 +71,9 @@ class OSC(controller.Controller):
         self.nkp = self.kp * .1
         self.nkv = np.sqrt(self.nkp)
 
+        # save previous joint angles for use in null control
+        self.prev_q = None
+
         # run the controller once to generate any functions we might be missing
         # to avoid a long delay in the control loop
         if hasattr(robot_config, 'OFFSET'):
@@ -152,7 +155,7 @@ class OSC(controller.Controller):
             # using the rcond to set singular values < thresh to 0
             # is slightly faster than doing it manually with svd
             # singular values < (rcond * max(singular_values)) set to 0
-            Mx = np.linalg.pinv(Mx_inv, rcond=.04)
+            Mx = np.linalg.pinv(Mx_inv, rcond=.005)
             self.Mx_non_singular = None
         self.Mx = Mx
 
@@ -201,9 +204,15 @@ class OSC(controller.Controller):
         if ee_force is not None:
             u_task += ee_force
 
+        Jbar = np.dot(M_inv, np.dot(J.T, Mx))
+        # add in gravity term in task space
+        g = self.robot_config.g(q=q)
+        self.u_g = g
+        g_task = np.dot(Jbar.T, g)
+
         # incorporate task space inertia matrix
         self.u_Mx = np.dot(Mx, u_task)
-        u = np.dot(J.T, np.dot(Mx, u_task))
+        u = np.dot(J.T, (np.dot(Mx, u_task) - g_task))
         self.u_inertia = u
 
         if self.vmax is None:
@@ -219,22 +228,28 @@ class OSC(controller.Controller):
         self.training_signal = np.copy(u)
 
         # cancel out effects of gravity
-        if self.use_g:
-            u -= self.robot_config.g(q=q)
-            self.u_g = u
+        # if self.use_g:
+        #     u -= self.robot_config.g(q=q)
+        #     self.u_g = u
 
         if self.null_control:
-            # calculated desired joint angle acceleration using rest angles
-            q_des = ((self.robot_config.REST_ANGLES - q + np.pi) %
-                     (np.pi * 2) - np.pi)
-            q_des[~self.null_indices] = 0.0
-            self.dq_des[self.null_indices] = dq[self.null_indices]
+            # # calculated desired joint angle acceleration using rest angles
+            # if self.prev_q is None:
+            #     self.prev_q = q
+            # # q_des = ((self.robot_config.REST_ANGLES - q + np.pi) %
+            # #          (np.pi * 2) - np.pi)
+            # q_des = ((self.prev_q - q + np.pi) %
+            #          (np.pi * 2) - np.pi)
+            # q_des[~self.null_indices] = 0.0
+            # self.dq_des[self.null_indices] = dq[self.null_indices]
+            #
+            # u_null = np.dot(M, (self.nkp * q_des - self.nkv * self.dq_des))
 
-            u_null = np.dot(M, (self.nkp * q_des - self.nkv * self.dq_des))
-
-            Jbar = np.dot(M_inv, np.dot(J.T, Mx))
+            u_null = np.dot(M, -10.0*dq)
             null_filter = (self.IDENTITY_N_JOINTS - np.dot(J.T, Jbar.T))
 
             u += np.dot(null_filter, u_null)
+
+            self.prev_q = q
 
         return u
