@@ -148,7 +148,7 @@ class OSC(controller.Controller):
         self.q = q
         Mx_inv = np.dot(J, np.dot(M_inv, J.T))
         self.Mx_inv = Mx_inv
-        if np.linalg.det(M) != 0:
+        if np.linalg.det(Mx_inv) != 0:
             Mx = np.linalg.inv(Mx_inv)
             self.Mx_non_singular = Mx_inv
         else:
@@ -212,7 +212,7 @@ class OSC(controller.Controller):
 
         # incorporate task space inertia matrix
         self.u_Mx = np.dot(Mx, u_task)
-        u = np.dot(J.T, (np.dot(Mx, u_task) - g_task))
+        u = np.dot(J.T, np.dot(Mx, u_task) - g_task)
         self.u_inertia = u
 
         if self.vmax is None:
@@ -227,29 +227,27 @@ class OSC(controller.Controller):
         # NOTE: training signal should not include gravity compensation
         self.training_signal = np.copy(u)
 
-        # cancel out effects of gravity
+        # # cancel out effects of gravity
         # if self.use_g:
         #     u -= self.robot_config.g(q=q)
         #     self.u_g = u
 
         if self.null_control:
-            # # calculated desired joint angle acceleration using rest angles
+            # calculated desired joint angle acceleration using rest angles
             # if self.prev_q is None:
-            #     self.prev_q = q
-            # # q_des = ((self.robot_config.REST_ANGLES - q + np.pi) %
-            # #          (np.pi * 2) - np.pi)
-            # q_des = ((self.prev_q - q + np.pi) %
+            #     self.prev_q = np.copy(q)
+            # q_des = ((self.robot_config.REST_ANGLES - q + np.pi) %
             #          (np.pi * 2) - np.pi)
             # q_des[~self.null_indices] = 0.0
             # self.dq_des[self.null_indices] = dq[self.null_indices]
             #
             # u_null = np.dot(M, (self.nkp * q_des - self.nkv * self.dq_des))
-
             u_null = np.dot(M, -10.0*dq)
+
             null_filter = (self.IDENTITY_N_JOINTS - np.dot(J.T, Jbar.T))
 
             u += np.dot(null_filter, u_null)
 
-            self.prev_q = q
+            self.prev_q = np.copy(q)
 
         return u
