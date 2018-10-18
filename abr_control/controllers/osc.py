@@ -206,13 +206,14 @@ class OSC(controller.Controller):
 
         Jbar = np.dot(M_inv, np.dot(J.T, Mx))
         # add in gravity term in task space
-        g = self.robot_config.g(q=q)
-        self.u_g = g
-        g_task = np.dot(Jbar.T, g)
+        # g = self.robot_config.g(q=q)
+        # self.u_g = g
+        # g_task = np.dot(Jbar.T, g)
 
         # incorporate task space inertia matrix
         self.u_Mx = np.dot(Mx, u_task)
-        u = np.dot(J.T, np.dot(Mx, u_task) - g_task)
+        #u = np.dot(J.T, (np.dot(Mx, u_task) - g_task))
+        u = np.dot(J.T, np.dot(Mx, u_task))
         self.u_inertia = u
 
         if self.vmax is None:
@@ -227,10 +228,10 @@ class OSC(controller.Controller):
         # NOTE: training signal should not include gravity compensation
         self.training_signal = np.copy(u)
 
-        # # cancel out effects of gravity
-        # if self.use_g:
-        #     u -= self.robot_config.g(q=q)
-        #     self.u_g = u
+        # cancel out effects of gravity
+        if self.use_g:
+            u -= self.robot_config.g(q=q)
+            self.u_g = u
 
         if self.null_control:
             # calculated desired joint angle acceleration using rest angles
