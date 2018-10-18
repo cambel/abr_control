@@ -129,7 +129,6 @@ class OSC(controller.Controller):
 
         # calculate the end-effector position information
         xyz = self.robot_config.Tx(ref_frame, q, x=offset)
-        self.Tx = xyz
 
         # calculate the Jacobian for the end effector
         J = self.robot_config.J(ref_frame, q, x=offset)
@@ -138,26 +137,19 @@ class OSC(controller.Controller):
 
         # calculate the inertia matrix in joint space
         M = self.robot_config.M(q)
-        self.M = M
 
         # calculate the inertia matrix in task space
         M_inv = np.linalg.inv(M)
-        self.M_inv = M_inv
         # calculate the Jacobian for end-effector with no offset
-        self.ref_frame = ref_frame
-        self.q = q
         Mx_inv = np.dot(J, np.dot(M_inv, J.T))
-        self.Mx_inv = Mx_inv
         if np.linalg.det(Mx_inv) != 0:
+            # do the linalg inverse if matrix is non-singular
+            # because it's faster and more accurate
             Mx = np.linalg.inv(Mx_inv)
-            self.Mx_non_singular = Mx_inv
         else:
             # using the rcond to set singular values < thresh to 0
-            # is slightly faster than doing it manually with svd
             # singular values < (rcond * max(singular_values)) set to 0
             Mx = np.linalg.pinv(Mx_inv, rcond=.005)
-            self.Mx_non_singular = None
-        self.Mx = Mx
 
         u_task = np.zeros(3)  # task space control signal
 
@@ -183,9 +175,7 @@ class OSC(controller.Controller):
             self.u_vmax = u_task
         else:
             # generate (x,y,z) force without velocity limiting)
-            u_task[:3] = -self.kp * x_tilde
-            self.u_vmax = u_task
-            self.dx=None
+            u_task = -self.kp * x_tilde
 
         if self.use_dJ:
             # add in estimate of current acceleration
@@ -193,7 +183,6 @@ class OSC(controller.Controller):
             # apply mask
             dJ = dJ[:3]
             u_task -= np.dot(dJ, dq)
-            self.u_dj = u_task
 
         if self.ki != 0:
             # add in the integrated error term
@@ -204,20 +193,12 @@ class OSC(controller.Controller):
         if ee_force is not None:
             u_task += ee_force
 
-        Jbar = np.dot(M_inv, np.dot(J.T, Mx))
-        # add in gravity term in task space
-        # g = self.robot_config.g(q=q)
-        # self.u_g = g
-        # g_task = np.dot(Jbar.T, g)
-
         # incorporate task space inertia matrix
         self.u_Mx = np.dot(Mx, u_task)
-        #u = np.dot(J.T, (np.dot(Mx, u_task) - g_task))
         u = np.dot(J.T, np.dot(Mx, u_task))
-        self.u_inertia = u
 
         if self.vmax is None:
-            u -= np.dot(M, dq)
+            u -= self.kv * np.dot(M, dq)
 
         if self.use_C:
             # add in estimation of full centrifugal and Coriolis effects
@@ -230,8 +211,14 @@ class OSC(controller.Controller):
 
         # cancel out effects of gravity
         if self.use_g:
+            # add in gravity term in joint space
             u -= self.robot_config.g(q=q)
-            self.u_g = u
+
+            # add in gravity term in task space
+            # Jbar = np.dot(M_inv, np.dot(J.T, Mx))
+            # g = self.robot_config.g(q=q)
+            # self.u_g = g
+            # g_task = np.dot(Jbar.T, g)
 
         if self.null_control:
             # calculated desired joint angle acceleration using rest angles
@@ -241,14 +228,13 @@ class OSC(controller.Controller):
             #          (np.pi * 2) - np.pi)
             # q_des[~self.null_indices] = 0.0
             # self.dq_des[self.null_indices] = dq[self.null_indices]
+            # self.prev_q = np.copy(q)
             #
             # u_null = np.dot(M, (self.nkp * q_des - self.nkv * self.dq_des))
+            Jbar = np.dot(M_inv, np.dot(J.T, Mx))
             u_null = np.dot(M, -10.0*dq)
-
             null_filter = (self.IDENTITY_N_JOINTS - np.dot(J.T, Jbar.T))
-
             u += np.dot(null_filter, u_null)
 
-            self.prev_q = np.copy(q)
 
         return u
