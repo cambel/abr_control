@@ -90,7 +90,7 @@ for ii, target_xyz in enumerate(targets):
         # run ctrl.generate once to load all functions
         zeros = np.zeros(robot_config.N_JOINTS)
         ctrlr.generate(q=zeros, dq=zeros, target_pos=target_xyz)
-        robot_config.orientation(ref_frame, q=zeros)
+        robot_config.R(ref_frame, q=zeros)
 
         # calculate end-effector position
         ee_xyz = robot_config.Tx(ref_frame, q=feedback['q'],
