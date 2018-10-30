@@ -645,10 +645,17 @@ class BaseConfig():
                 J[ii].append(Tx[1].diff(self.q[ii]))  # dy/dq[ii]
                 J[ii].append(Tx[2].diff(self.q[ii]))  # dz/dq[ii]
 
-            end_point = name.strip('link').strip('joint')
-            end_point = self.N_JOINTS if 'EE' in end_point else end_point
+            if 'EE' in name:
+                end_point = self.N_JOINTS
+            elif 'link' in name:
+                end_point = min(int(name.strip('link')), self.N_LINKS)
+            elif 'joint' in name:
+                end_point = min(int(name.strip('joint')), self.N_JOINTS)
 
-            end_point = min(int(end_point) + 1, self.N_JOINTS)
+            # end_point = name.strip('link').strip('joint')
+            # end_point = self.N_JOINTS if 'EE' in end_point else end_point
+            # end_point = min(int(end_point) + 1, self.N_JOINTS)
+
             # add on the orientation information up to the last joint
             for ii in range(end_point):
                 J[ii] = J[ii] + list(self.J_orientation[ii])

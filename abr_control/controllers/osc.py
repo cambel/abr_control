@@ -217,7 +217,7 @@ class OSC(controller.Controller):
         self.u_inertia = u
 
         if self.vmax is None:
-            u -= np.dot(M, dq)
+            u -= self.kv * np.dot(M, dq)
 
         if self.use_C:
             # add in estimation of full centrifugal and Coriolis effects
