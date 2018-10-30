@@ -21,14 +21,25 @@ arm_sim = arm.ArmSim(robot_config)
 ctrlr = OSC(robot_config, kp=20, vmax=None,
             use_C=True, use_g=False)
 
+
+def on_click(self, mouse_x, mouse_y):
+    self.target[0] = self.mouse_x
+    self.target[1] = self.mouse_y
+
+
 # create our interface
-interface = PyGame(robot_config, arm_sim, dt=.001)
+interface = PyGame(robot_config, arm_sim, dt=.001, on_click=on_click)
 interface.connect()
 
-# target orientation is initial orientation + theta rotation around z axis
+# create a target position
 feedback = interface.get_feedback()
+target_xyz = robot_config.Tx('EE', feedback['q']) - np.array([-.5, 1, 0])
+print(target_xyz)
+interface.set_target(target_xyz)
+
+# target orientation is initial orientation + theta rotation around z axis
 R = robot_config.R('EE', feedback['q'])
-theta = np.pi / 4
+theta = - 3 * np.pi / 4
 R_theta = np.array([
     [np.cos(theta), -np.sin(theta), 0],
     [np.sin(theta), np.cos(theta), 0],
@@ -49,6 +60,7 @@ target_path = []
 
 
 kw = 0.0  # gain on angular velocity difference
+kp = 10.0  # gain or position error
 ko = 10.0  # gain on orientation error
 kv = 10.0
 w_d = 0.0  # target angular velocity
@@ -73,18 +85,20 @@ try:
         R = robot_config.R('EE', feedback['q'])
         q_EE = transformations.quaternion_from_matrix(R)
 
-        J = robot_config.J('EE', feedback['q'])[3:]
-        J_inv = np.linalg.pinv(J)
-        w = np.dot(J, feedback['q'])  # calculate the task space velocities
-        # dx = np.dot(J, feedback['q'])  # calculate the task space velocities
-        # w = dx[3:]  # isolate the angular velocities
+        J = robot_config.J('EE', feedback['q'])
 
         # calculate the difference between q_EE and q_target
         # from (Yuan, 1988)
         # dq = (w_d * [x, y, z] - w * [x_d, y_d, z_d] -
         #       [x_d, y_d, z_d]^x * [x, y, z])
         w_tilde = - ko * (q_target[0] * q_EE[1:] - q_EE[0] * q_target[1:] -
-                          np.dot(q_target_matrix, q_EE[1:]))
+                np.dot(q_target_matrix, q_EE[1:]))
+        x_tilde = - kp * (hand_xyz - target_xyz)
+
+        forces = np.hstack([x_tilde, w_tilde])[:, None]
+
+        J = np.vstack([J[0], J[1], J[5]])
+        forces = np.vstack([forces[0], forces[1], forces[5]]).squeeze()
 
         M = robot_config.M(feedback['q'])
         M_inv = np.linalg.inv(M)
@@ -92,9 +106,14 @@ try:
         if np.linalg.det(Mx_inv) != 0:
             Mx = np.linalg.inv(Mx_inv)
         else:
-            Mx = np.linalg.pinv(Mx_inv, rcond=0.005)
+            Mx = np.linalg.pinv(Mx_inv, rcond=0.05)
 
-        u = np.dot(J.T, np.dot(Mx, w_tilde)) - kv * np.dot(M, feedback['dq'])
+        u = np.dot(J.T, np.dot(Mx, forces)) - kv * np.dot(M, feedback['dq'])
+
+        new_target = interface.get_mousexy()
+        if new_target is not None:
+            target_xyz[0:2] = new_target
+        interface.set_target(target_xyz)
 
         # apply the control signal, step the sim forward
         interface.send_forces(
