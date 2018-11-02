@@ -20,29 +20,6 @@ interface = VREP(robot_config, dt=.005)
 interface.connect()
 
 try:
-    # # target orientation is initial orientation + theta rotation around z axis
-    # feedback = interface.get_feedback()
-    # R = robot_config.R('EE', feedback['q'])
-    # theta = -np.pi / 2
-    # R_theta = np.array([
-    #     [np.cos(theta), -np.sin(theta), 0],
-    #     [np.sin(theta), np.cos(theta), 0],
-    #     [0, 0, 1]])
-    # R_target = np.dot(R_theta, R)
-    # q_target = transformations.quaternion_from_matrix(R_target)
-
-    # get orientation of target from VREP
-    euler_angles = interface.get_orientation('target')
-    q_target = transformations.quaternion_from_euler(
-        euler_angles[0], euler_angles[1], euler_angles[2], axes='sxyz')
-
-    # from (Yuan, 1988), given r = [r1, r2, r3]
-    # r^x = [[0, -r3, r2], [r3, 0, -r1], [-r2, r1, 0]]
-    q_target_matrix = np.array([
-        [0, -q_target[2], q_target[1]],
-        [q_target[2], 0, -q_target[0]],
-        [-q_target[1], q_target[0], 0]])
-
 
     # set up lists for tracking data
     ee_path = []
@@ -59,7 +36,6 @@ try:
     robot_config.R('EE', q=zeros)
 
     print('\nSimulation starting...\n')
-    print('\nClick to move the target.\n')
 
     count = 0
     while 1:
@@ -67,7 +43,20 @@ try:
         feedback = interface.get_feedback()
         hand_xyz = robot_config.Tx('EE', feedback['q'])
 
-        # first step is to get the quaternion for the end effector
+        # get orientation of target from VREP
+        euler_angles = interface.get_orientation('target')
+        # transform into a quaternion
+        q_target = transformations.quaternion_from_euler(
+            euler_angles[0], euler_angles[1], euler_angles[2], axes='sxyz')
+
+        # from (Yuan, 1988), given r = [r1, r2, r3]
+        # r^x = [[0, -r3, r2], [r3, 0, -r1], [-r2, r1, 0]]
+        q_target_matrix = np.array([
+            [0, -q_target[2], q_target[1]],
+            [q_target[2], 0, -q_target[0]],
+            [-q_target[1], q_target[0], 0]])
+
+        # get orientation in quaternion form for the end effector
         # in origin frame coordinates, calculated from the rotation matrix
         R = robot_config.R('EE', feedback['q'])
         q_EE = transformations.quaternion_from_matrix(R)
