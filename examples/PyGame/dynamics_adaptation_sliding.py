@@ -1,7 +1,8 @@
 """
-Running the threelink arm with the PyGame display. The controller works
-to drive the arm's end-effector to the target while an unexpected external
-force is applied. Target position can be by clicking inside the display.
+Running sliding control with nonlinear adaptation using the
+PyGame display. The controller works to drive the arm's end-effector to
+the target while an unexpected external force is applied. Target position
+can be by clicking inside the display.
 To turn adaptation on or off, press the spacebar.
 """
 import numpy as np
@@ -31,6 +32,7 @@ adapt = signals.DynamicsAdaptation(
     n_output=robot_config.N_JOINTS,
     pes_learning_rate=1e-2, backend='nengo')
 
+
 def on_click(self, mouse_x, mouse_y):
     self.target[0] = self.mouse_x
     self.target[1] = self.mouse_y
@@ -40,6 +42,7 @@ def on_keypress(self, key):
     if key == pygame.K_SPACE:
         self.adaptation = not self.adaptation
         print('adaptation: ', self.adaptation)
+
 
 # create our interface
 interface = PyGame(robot_config, arm_sim,
@@ -59,14 +62,10 @@ target_path = []
 
 
 try:
-    # run ctrl.generate once to load all functions
-    zeros = np.zeros(robot_config.N_JOINTS)
-    ctrlr.generate(q=zeros, dq=zeros, target_pos=target_xyz)
-    robot_config.R('EE', q=zeros)
+    print('\nSimulation starting...')
+    print('Click to move the target.')
+    print('Press space to turn on adaptation.\n')
 
-    print('\nSimulation starting...\n')
-    print('\nClick to move the target.')
-    print('\nPress space to turn on adaptation.\n\n')
     count = 0
     while 1:
         # get arm feedback
@@ -77,7 +76,8 @@ try:
         u = ctrlr.generate(
             q=feedback['q'],
             dq=feedback['dq'],
-            target_pos=target_xyz)
+            target=target_xyz)
+
         # if adaptation is on (toggled with space bar)
         if interface.adaptation:
             sig = adapt.generate(

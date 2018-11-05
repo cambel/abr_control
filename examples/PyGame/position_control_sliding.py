@@ -1,14 +1,14 @@
 """
-Running the threelink arm with the pygame display. The arm will
+Running sliding control with the PyGame display. The arm will
 move the end-effector to the target, which can be moved by
 clicking on the background.
 """
 import numpy as np
 
-# from abr_control.arms import threejoint as arm
-from abr_control.arms import twojoint as arm
+from abr_control.arms import threejoint as arm
+# from abr_control.arms import twojoint as arm
 from abr_control.interfaces import PyGame
-from abr_control.controllers import OSC
+from abr_control.controllers import Sliding
 
 
 # initialize our robot config
@@ -17,8 +17,7 @@ robot_config = arm.Config(use_cython=True)
 arm_sim = arm.ArmSim(robot_config)
 
 # create an operational space controller
-ctrlr = OSC(robot_config, kp=20, vmax=None,
-            use_C=True, use_g=False)
+ctrlr = Sliding(robot_config)
 
 
 def on_click(self, mouse_x, mouse_y):
@@ -41,13 +40,8 @@ target_path = []
 
 
 try:
-    # run ctrl.generate once to load all functions
-    zeros = np.zeros(robot_config.N_JOINTS)
-    ctrlr.generate(q=zeros, dq=zeros, target_pos=np.zeros(3))
-    robot_config.R('EE', q=zeros)
-
-    print('\nSimulation starting...\n')
-    print('\nClick to move the target.\n')
+    print('\nSimulation starting...')
+    print('Click to move the target.\n')
 
     count = 0
     while 1:
@@ -59,8 +53,8 @@ try:
         u = ctrlr.generate(
             q=feedback['q'],
             dq=feedback['dq'],
-            target_pos=target_xyz,
-            target_vel=np.zeros(3))
+            target=target_xyz
+            )
 
         new_target = interface.get_mousexy()
         if new_target is not None:

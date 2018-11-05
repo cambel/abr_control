@@ -64,13 +64,14 @@ class OSC(controller.Controller):
 
         self.IDENTITY_N_JOINTS = np.eye(self.robot_config.N_JOINTS)
         self.ZEROS_THREE = np.zeros(3)
+        self.ZEROS_SIX = np.zeros(6)
+        self.POSITION_CTRLR = [True, True, True, False, False, False]
         # null space filter gains
         self.nkv = 10.0
 
     def generate(self, q, dq,
-                 target_pos, target_vel=0,
-                 ctrlr_dof=[True, True, True, False, False, False],
-                 ref_frame='EE', offset=[0, 0, 0], ee_force=None):
+                 target, target_vel=None, ctrlr_dof=None,
+                 ref_frame='EE', xyz_offset=None):
         """ Generates the control signal to move the EE to a target
 
         Parameters
@@ -79,34 +80,38 @@ class OSC(controller.Controller):
             current joint angles [radians]
         dq : float numpy.array
             current joint velocities [radians/second]
-        target_pos : float numpy.array
+        target: 6 dimensional float numpy.array
             desired task space position and orientation [meters, radians]
-        target_vel : float numpy.array, optional (Default: 0)
+        target_vel : float 6D numpy.array, optional (Default: None)
             desired task space velocities [meters/sec, radians/sec]
-        ctrlr_dof : list of boolean, optional (Default: position control)
+        ctrlr_dof : 6D list of boolean, optional (Default: position control)
             specifies which task space degrees of freedom are to be controlled
             [x, y, z, alpha, beta, gamma] (Default: [x, y, z]
             NOTE: if more ctrlr_dof are specified than degrees of freedom in
             the robotic system, the controller will perform poorly
         ref_frame : string, optional (Default: 'EE')
             the point being controlled, default is the end-effector.
-        offset : list, optional (Default: [0, 0, 0])
+        xyz_offset : 3D list, optional (Default: [0, 0, 0])
             position offset inside the frame of reference [meters]
         """
 
-        n_ctrlr_dof = np.sum(ctrlr_dof)
+        assert np.array(target).shape[0] == 6
 
-        print('target_pos: ', target_pos)
+        if target_vel is None:
+            target_vel = self.ZEROS_SIX
+        else:
+            assert np.array(target_vel).shape[0] == 6
 
-        new_target_pos = np.zeros(6)
-        new_target_pos[ctrlr_dof] = target_pos
-        target_pos = new_target_pos
+        if ctrlr_dof is None:
+            ctrlr_dof = self.POSITION_CTRLR
 
-        # calculate the end-effector position information
-        xyz = self.robot_config.Tx(ref_frame, q, x=offset)
+        if xyz_offset is None:
+            xyz_offset = self.ZEROS_THREE
+
+        n_ctrlr_dof = np.sum(ctrlr_dof)  # number of DOF being controlled
 
         # calculate the Jacobian for the end effector
-        J = self.robot_config.J(ref_frame, q, x=offset)
+        J = self.robot_config.J(ref_frame, q, x=xyz_offset)
         # isolate rows of Jacobian corresponding to controlled task space DOF
         J = J[ctrlr_dof]
 
@@ -115,7 +120,6 @@ class OSC(controller.Controller):
 
         # calculate the inertia matrix in task space
         M_inv = np.linalg.inv(M)
-        # calculate the Jacobian for end-effector with no offset
         Mx_inv = np.dot(J, np.dot(M_inv, J.T))
         if np.linalg.det(Mx_inv) != 0:
             # do the linalg inverse if matrix is non-singular
@@ -131,29 +135,26 @@ class OSC(controller.Controller):
 
         # calculate position error if position is being controlled
         if np.sum(ctrlr_dof[:3]) > 0:
-            # TODO: how to get out the position component?
-            print('ctrlr_dof[:3] ', ctrlr_dof[:3])
-            u_task[:3][ctrlr_dof[:3]] = np.array(xyz - target_pos[:3])[ctrlr_dof[:3]]
+            # calculate the end-effector position information
+            xyz = self.robot_config.Tx(ref_frame, q, x=xyz_offset)
+            u_task[:3] = np.array(xyz - target[:3])
 
         # calculate orientation error if orientation is being controlled
         if np.sum(ctrlr_dof[3:]) > 0:
 
-            # # NOTE: is this appropriate? Calculating the current end effector
-            # # orientation angles and replacing the ones being controlled?
-            #
-            # # calculate Euler angles for current orientation
+            # NOTE: is this correct? Calculating the current end effector
+            # orientation angles and replacing the ones being controlled?
+            # calculate Euler angles for current orientation
             # R_EE = self.robot_config.R('EE', q)
-            # angles = np.array(transformations.euler_from_matrix(R_EE, axes='sxyz'))
+            # angles = np.array(
+            #     transformations.euler_from_matrix(R_EE, axes='sxyz'))
 
-            # NOTE: it seems to work about the same with zeros instead
-            # need to test in VREP, use zeros and save computation if same
-            angles = np.zeros(3)
-            # replace current angles with target angles
-            angles[ctrlr_dof[3:]] = target_pos[ctrlr_dof[3:]]
-
+            # NOTE: Seems to work the same using zeros instead of the actual
+            # current EE values to fill in dimensions not controlled,
+            # need to set up a test and actually check this
             # generate quaternion representing target orientation
             q_target = transformations.quaternion_from_euler(
-                angles[0], angles[1], angles[2], axes='sxyz')
+                target[3], target[4], target[5], axes='sxyz')
 
             # from (Yuan, 1988), given r = [r1, r2, r3]
             # r^x = [[0, -r3, r2], [r3, 0, -r1], [-r2, r1, 0]]
@@ -177,41 +178,20 @@ class OSC(controller.Controller):
         u_task = u_task[ctrlr_dof]
 
         # implement velocity limiting -----------------------------------------
-        # if self.vmax is not None:
-        #     sat = self.vmax / (self.lamb * np.abs(x_tilde))
-        #     if np.any(sat < 1):
-        #         index = np.argmin(sat)
-        #         unclipped = self.kp * x_tilde[index]
-        #         clipped = self.kv * self.vmax * np.sign(x_tilde[index])
-        #         scale = np.ones(3, dtype='float32') * clipped / unclipped
-        #         scale[index] = 1
-        #     else:
-        #         scale = np.ones(3, dtype='float32')
-        #
-        #     dx = np.dot(J, dq)
-        #     if target_vel is None:
-        #         target_vel = np.zeros(CTRLR_DOF)
-        #     u_task[:3] = -self.kv * (dx - target_vel -
-        #                              np.clip(sat / scale, 0, 1) *
-        #                              -self.lamb * scale * x_tilde)
-        #     # low level signal set to zero
-        #     u = 0.0
-        # else:
-
-        # implement velocity limiting -----------------------------------------
         if self.vmax is not None:
             sat = self.vmax / (self.lamb * np.abs(u_task))
             if np.any(sat < 1):
                 index = np.argmin(sat)
                 unclipped = self.kp * u_task[index]
                 clipped = self.kv * self.vmax * np.sign(u_task[index])
-                scale = np.ones(n_ctrlr_dof, dtype='float32') * clipped / unclipped
+                scale = (np.ones(n_ctrlr_dof, dtype='float32') *
+                         clipped / unclipped)
                 scale[index] = 1
             else:
-                scale = np.ones(3, dtype='float32')
+                scale = np.ones(n_ctrlr_dof, dtype='float32')
 
             dx = np.dot(J, dq)
-            u_task = -self.kv * (dx - target_vel -
+            u_task = -self.kv * (dx - target_vel[ctrlr_dof] -
                                  np.clip(sat / scale, 0, 1) *
                                  -self.lamb * scale * u_task)
             # low level signal set to zero
@@ -226,34 +206,28 @@ class OSC(controller.Controller):
             else:
                 dx = np.dot(J, dq)
                 # high level signal includes velocity compensation
-                u_task -= self.kv * (dx - target_vel)
+                u_task -= self.kv * (dx - target_vel[ctrlr_dof])
                 u = 0.0
 
-        if self.use_dJ:
-            # add in estimate of current acceleration
-            dJ = self.robot_config.dJ(ref_frame, q=q, dq=dq)
-            # apply mask
-            dJ = dJ[:3]
-            u_task += np.dot(dJ, dq)
-
+        # add in integrated error term to task space forces -------------------
         if self.ki != 0:
             # add in the integrated error term
             self.integrated_error += x_tilde
             u_task -= self.ki * self.integrated_error
 
-        # incorporate task space inertia matrix
+        # transform task space control signal into joint space ----------------
         u += np.dot(J.T, np.dot(Mx, u_task))
 
+        # add in estimation of full centrifugal and Coriolis effects ----------
         if self.use_C:
-            # add in estimation of full centrifugal and Coriolis effects
             u -= np.dot(self.robot_config.C(q=q, dq=dq), dq)
 
         # store the current control signal u for training in case
         # dynamics adaptation signal is being used
-        # NOTE: training signal should not include gravity compensation
+        # NOTE: do not include gravity or null controller in training signal
         self.training_signal = np.copy(u)
 
-        # cancel out effects of gravity
+        # cancel out effects of gravity ---------------------------------------
         if self.use_g:
             # add in gravity term in joint space
             u -= self.robot_config.g(q=q)
@@ -264,6 +238,7 @@ class OSC(controller.Controller):
             # self.u_g = g
             # g_task = np.dot(Jbar.T, g)
 
+        # add in secondary control signal -------------------------------------
         if self.null_control:
             # the secondary controller works as a dampener
             Jbar = np.dot(M_inv, np.dot(J.T, Mx))

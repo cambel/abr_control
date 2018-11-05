@@ -1,8 +1,8 @@
 """
-Running the threelink arm with the PyGame display. The path planning will
-system will generate a trajectory for the controller to follow, moving the
-end-effector in a straight line to the target, which changes every n time
-steps.
+Running the operational space control with a first order path planner
+using the PyGame display. The path planner system will generate a
+trajectory for the controller to follow, moving the end-effector in a
+straight line to the target, which changes every n time steps.
 """
 import numpy as np
 
@@ -19,10 +19,10 @@ robot_config = arm.Config(use_cython=True)
 arm_sim = arm.ArmSim(robot_config)
 
 # create an operational space controller
-ctrlr = OSC(robot_config, kp=100, vmax=None)
+ctrlr = OSC(robot_config, kp=100)
 
 # create our path planner
-n_timesteps = 250  # give .25s to reach target
+n_timesteps = 250  # give 250 time steps to reach target
 path_planner = path_planners.Linear(robot_config)
 
 # create our interface
@@ -33,16 +33,13 @@ interface.connect()
 ee_path = []
 target_path = []
 
+# control (x, y) out of [x, y, z, alpha, beta, gamma]
+ctrlr_dof = [True, True, False, False, False, False]
+
 
 try:
-    # run ctrl.generate once to load all functions
-    zeros = np.zeros(robot_config.N_JOINTS)
-    ctrlr.generate(q=zeros, dq=zeros,
-                   target_pos=zeros, target_vel=zeros)
-    robot_config.R('EE', q=zeros)
-
-    print('\nSimulation starting...\n')
-    print('\nClick to move the target.\n')
+    print('\nSimulation starting...')
+    print('Click to move the target.\n')
 
     count = 0
     while 1:
@@ -68,8 +65,10 @@ try:
         u = ctrlr.generate(
             q=feedback['q'],
             dq=feedback['dq'],
-            target_pos=target[:3],  # (x, y, z)
-            target_vel=target[3:])  # (dx, dy, dz)
+            target=np.hstack([target[:3], np.zeros(3)]),
+            target_vel=np.hstack([target[3:], np.zeros(3)]),
+            ctrlr_dof=ctrlr_dof
+            )
 
         # apply the control signal, step the sim forward
         interface.send_forces(
