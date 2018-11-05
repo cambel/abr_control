@@ -34,8 +34,6 @@ class OSC(controller.Controller):
     use_C : boolean, optional (Default: False)
         calculate and compensate for the Coriolis and
         centripetal effects of the arm
-    use_dJ : boolean, optional (Default: False)
-        use the Jacobian derivative wrt time
 
     Attributes
     ----------
@@ -45,7 +43,7 @@ class OSC(controller.Controller):
         task-space integrated error term
     """
     def __init__(self, robot_config, kp=1, ko=1, kv=None, ki=0, vmax=None,
-                 null_control=True, use_g=True, use_C=False, use_dJ=False):
+                 null_control=True, use_g=True, use_C=False):
 
         super(OSC, self).__init__(robot_config)
 
@@ -58,7 +56,6 @@ class OSC(controller.Controller):
         self.null_control = null_control
         self.use_g = use_g
         self.use_C = use_C
-        self.use_dJ = use_dJ
 
         self.integrated_error = np.array([0.0, 0.0, 0.0])
 
