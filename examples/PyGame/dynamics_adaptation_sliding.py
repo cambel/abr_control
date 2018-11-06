@@ -30,7 +30,7 @@ ctrlr = Sliding(robot_config, kd=20)
 adapt = signals.DynamicsAdaptation(
     n_input=robot_config.N_JOINTS,
     n_output=robot_config.N_JOINTS,
-    pes_learning_rate=1e-2, backend='nengo')
+    pes_learning_rate=1e-3, backend='nengo')
 
 
 def on_click(self, mouse_x, mouse_y):
