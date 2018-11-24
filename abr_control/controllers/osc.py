@@ -14,7 +14,9 @@ class OSC(controller.Controller):
         contains all relevant information about the arm
         such as: number of joints, number of links, mass information etc.
     kp : float, optional (Default: 1)
-        proportional gain term
+        proportional gain term on position error
+    ko : float, optional (Default: same as kp)
+        proportional gain term on orientation error
     kv : float, optional (Default: None)
         derivative gain term, a good starting point is sqrt(kp)
     ki : float, optional (Default: 0)
@@ -40,13 +42,13 @@ class OSC(controller.Controller):
     integrated_error : float list, optional (Default: None)
         task-space integrated error term
     """
-    def __init__(self, robot_config, kp=1, ko=1, kv=None, ki=0, vmax=None,
+    def __init__(self, robot_config, kp=1, ko=None, kv=None, ki=0, vmax=None,
                  null_control=True, use_g=True, use_C=False):
 
         super(OSC, self).__init__(robot_config)
 
         self.kp = kp
-        self.ko = ko
+        self.ko = kp if ko is None else ko
         self.kv = np.sqrt(self.kp) if kv is None else kv
         self.ki = ki
         self.vmax = vmax
@@ -137,35 +139,68 @@ class OSC(controller.Controller):
         # calculate orientation error if orientation is being controlled
         if np.sum(ctrlr_dof[3:]) > 0:
 
-            # calculate the current end effector Euler angles
-            # replace the non-controlled target orientation angles with
-            # the current orientation angles to minimize distance travelled
-            if np.sum(ctrlr_dof[3:]) < 3:
-                R_EE = self.robot_config.R('EE', q)
-                angles = np.array(
-                    transformations.euler_from_matrix(R_EE, axes='sxyz'))
-                target[3:][not ctrlr_dof[3:]] = angles[not ctrlr_dof[3:]]
+            # From (Caccavale et al, 1997)
+            # get rotation matrix for the end effector orientation
+            R_EE = self.robot_config.R('EE', q)
+            # get rotation matrix for the target orientation
+            R_target = transformations.euler_matrix(
+                target[3], target[4], target[5], axes='rxyz')[:3, :3]
+            # calculate rotation matrix describing mutual orientation
+            # between desired and actual
+            # get the vector part of the quaternion representing R
+            # R = np.dot(R_EE.T, R_target)
+            R = np.dot(R_target, R_EE.T)
+            q_EE = transformations.quaternion_from_matrix(R)
+            # print(q_EE)
+            # refer back to the base frame
+            u_task[3:] = np.dot(R_EE, q_EE[1:])
 
             q_target = transformations.quaternion_from_euler(
-                target[3], target[4], target[5], axes='sxyz')
+                    target[3], target[4], target[5], axes='rxyz')
+            print('\n target angles:', target[3:])
+            print('q_target: ', q_target)
+            angle = q_target[0] * q_EE[0] + np.dot(q_target[1:].T, q_EE[1:])
+            # print('angle: ', angle)
 
-            # from (Yuan, 1988), given r = [r1, r2, r3]
-            # r^x = [[0, -r3, r2], [r3, 0, -r1], [-r2, r1, 0]]
-            q_target_matrix = np.array([
-                [0.0, -q_target[2], q_target[1]],
-                [q_target[2], 0.0, -q_target[0]],
-                [-q_target[1], q_target[0], 0.0]])
-
-            # get the quaternion for the end effector
-            q_EE = transformations.quaternion_from_matrix(
-                self.robot_config.R('EE', q))
-
-            # calculate the difference between q_EE and q_target
-            # from (Yuan, 1988)
-            # dq = (w_d * [x, y, z] - w * [x_d, y_d, z_d] -
-            #       [x_d, y_d, z_d]^x * [x, y, z])
-            u_task[3:] = (q_target[0] * q_EE[1:] - q_EE[0] * q_target[1:] -
-                          np.dot(q_target_matrix, q_EE[1:]))
+            # # calculate the current end effector Euler angles
+            # # replace the non-controlled target orientation angles with
+            # # the current orientation angles to minimize distance travelled
+            # if np.sum(ctrlr_dof[3:]) < 3:
+            #     R_EE = self.robot_config.R('EE', q)
+            #     angles = np.array(
+            #         transformations.euler_from_matrix(R_EE, axes='rxyz'))
+            #     target[3:][not ctrlr_dof[3:]] = angles[not ctrlr_dof[3:]]
+            #
+            # q_target = transformations.quaternion_from_euler(
+            #         target[3], target[4], target[5], axes='rxyz')
+            #
+            # # from (Yuan, 1988), given r = [r1, r2, r3]
+            # # r^x = [[0, -r3, r2], [r3, 0, -r1], [-r2, r1, 0]]
+            # q_target_matrix = np.array([
+            #     [0.0, -q_target[2], q_target[1]],
+            #     [q_target[2], 0.0, -q_target[0]],
+            #     [-q_target[1], q_target[0], 0.0]])
+            #
+            # # get the quaternion for the end effector
+            # q_EE = transformations.quaternion_from_matrix(
+            #     self.robot_config.R('EE', q))
+            #
+            # # calculate the difference between q_EE and q_target
+            # # from (Nakanishi et al, 2008). NOTE: the sign of the last term
+            # # is different from (Yuan, 1998) to account for Euler angles in
+            # # world coordinates instead of local coordinates.
+            # # dq = (w_d * [x, y, z] - w * [x_d, y_d, z_d] -
+            # #       [x_d, y_d, z_d]^x * [x, y, z])
+            # # NOTE: if the angle is < 0, we're crossing the pi line and
+            # # the above calculation will send you the long way around.
+            # # To avoid this, multiply the calculated Euler velocities by
+            # # the sign of quaternion that moves between q_EE and q_target
+            # angle = q_target[0] * q_EE[0] + np.dot(q_target[1:].T, q_EE[1:])
+            # if angle < 0:
+            #     print('angle: ', angle)
+            # u_task[3:] = (q_target[0] * q_EE[1:] - q_EE[0] * q_target[1:] +
+            #               np.dot(q_target_matrix, q_EE[1:])) * np.sign(angle)
+            print([float('%.3f' % val) for val in u_task[3:]])
 
         # isolate task space forces corresponding to controlled DOF
         u_task = u_task[ctrlr_dof]
