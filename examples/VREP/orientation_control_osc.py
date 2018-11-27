@@ -48,29 +48,6 @@ try:
         rc_angles = transformations.euler_from_matrix(rc_matrix, axes='rxyz')
         interface.set_orientation('object', rc_angles)
 
-        print()
-        print()
-        print('vrep matrix: \n', vrep_R)
-        print('rc matrix: \n', rc_matrix)
-        print()
-        print('vrep angles: ', vrep_angles)
-        print('rc angles: ', list(rc_angles))
-
-        # interface.set_xyz('object', robot_config.Tx(name, q=feedback['q']))
-        # interface.set_orientation('object', vrep_angles)
-        #
-        # print('rc angles: ', [float('%.3f' % val) for val in np.array(rc_angles) * 180 / np.pi])
-        # print('VREP angles: ', [float('%.3f' % val) for val in np.array(vrep_angles) * 180 / np.pi])
-        # # print()
-        # print('rc matrix: \n')
-        # for row in rc_matrix:
-        #     print([float('%.3f' % val) for val in row])
-        # print('VREP matrix : \n')
-        # vrep_matrix = transformations.euler_matrix(
-        #     vrep_angles[0], vrep_angles[1], vrep_angles[2], axes='rxyz')[:3, :3]
-        # for row in vrep_matrix:
-        #     print([float('%.3f' % val) for val in row])
-
         u = ctrlr.generate(
             q=feedback['q'],
             dq=feedback['dq'],

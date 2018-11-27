@@ -139,28 +139,45 @@ class OSC(controller.Controller):
         # calculate orientation error if orientation is being controlled
         if np.sum(ctrlr_dof[3:]) > 0:
 
-            # From (Caccavale et al, 1997)
-            # get rotation matrix for the end effector orientation
-            R_EE = self.robot_config.R('EE', q)
-            # get rotation matrix for the target orientation
-            R_target = transformations.euler_matrix(
-                target[3], target[4], target[5], axes='rxyz')[:3, :3]
-            # calculate rotation matrix describing mutual orientation
-            # between desired and actual
-            # get the vector part of the quaternion representing R
-            # R = np.dot(R_EE.T, R_target)
-            R = np.dot(R_target, R_EE.T)
-            q_EE = transformations.quaternion_from_matrix(R)
-            # print(q_EE)
-            # refer back to the base frame
-            u_task[3:] = np.dot(R_EE, q_EE[1:])
+            # # From (Caccavale et al, 1997)
+            # # get rotation matrix for the end effector orientation
+            # R_EE = self.robot_config.R('EE', q)
+            # # get rotation matrix for the target orientation
+            # R_target = transformations.euler_matrix(
+            #     target[3], target[4], target[5], axes='rxyz')[:3, :3]
+            # # calculate rotation matrix describing mutual orientation
+            # # between desired and actual
+            # # get the vector part of the quaternion representing R
+            # # R = np.dot(R_EE.T, R_target)
+            # R = np.dot(R_target, R_EE.T)
+            # q_EE = transformations.quaternion_from_matrix(R)
+            # # print(q_EE)
+            # # refer back to the base frame
+            # u_task[3:] = np.dot(R_EE, q_EE[1:])
+            #
+            # q_target = transformations.quaternion_from_euler(
+            #         target[3], target[4], target[5], axes='rxyz')
+            # print('\n target angles:', target[3:])
+            # print('q_target: ', q_target)
+            # angle = q_target[0] * q_EE[0] + np.dot(q_target[1:].T, q_EE[1:])
+            # print('angle: ', angle)
+
 
             q_target = transformations.quaternion_from_euler(
                     target[3], target[4], target[5], axes='rxyz')
-            print('\n target angles:', target[3:])
-            print('q_target: ', q_target)
-            angle = q_target[0] * q_EE[0] + np.dot(q_target[1:].T, q_EE[1:])
-            # print('angle: ', angle)
+
+            # get the quaternion for the end effector
+            q_EE = transformations.quaternion_from_matrix(
+                self.robot_config.R('EE', q))
+
+            u_task[3:] = -1 * transformations.quaternion_multiply(
+                q_target, transformations.quaternion_conjugate(q_EE))[1:]
+
+            # # recover axis-angle representation
+            # v_norm = np.sqrt(r[1]**2 + r[2]**2 + r[3]**2)
+            # theta = 2 * np.arctan2(v_norm, r[0]) * 180.0 / np.pi
+            # axis = r[1:] / v_norm
+            # print('theta: ', theta)
 
             # # calculate the current end effector Euler angles
             # # replace the non-controlled target orientation angles with
@@ -200,7 +217,8 @@ class OSC(controller.Controller):
             #     print('angle: ', angle)
             # u_task[3:] = (q_target[0] * q_EE[1:] - q_EE[0] * q_target[1:] +
             #               np.dot(q_target_matrix, q_EE[1:])) * np.sign(angle)
-            print([float('%.3f' % val) for val in u_task[3:]])
+            # print('r: ', r)
+            # print('u_task: ', [float('%.3f' % val) for val in u_task[3:]])
 
         # isolate task space forces corresponding to controlled DOF
         u_task = u_task[ctrlr_dof]
