@@ -1,0 +1,294 @@
+import numpy as np
+import sympy as sp
+
+from ..base_config import BaseConfig
+
+
+class Config(BaseConfig):
+    """ Robot config file for the UR3
+
+    Attributes
+    ----------
+    REST_ANGLES : numpy.array
+        the joint angles the arm tries to push towards with the
+        null controller
+    _M_LINKS : sympy.diag
+        inertia matrix of the links
+    _M_JOINTS : sympy.diag
+        inertia matrix of the joints
+    L : numpy.array
+        segment lengths of arm [meters]
+    L_HANDCOM : numpy.array
+        offset to the center of mass of the hand [meters]
+
+    Transform Naming Convention: Tpoint1point2
+    ex: Tj1l1 tranforms from joint 1 to link 1
+
+    Transforms are broken up into two matrices for simplification
+    ex: Tj0l1a and Tj0l1b where the former transform accounts for
+    joint rotations and the latter accounts for static rotations
+    and translations
+    """
+
+    def __init__(self, **kwargs):
+
+        super(Config, self).__init__(
+            N_JOINTS=6, N_LINKS=7, ROBOT_NAME='ur3', **kwargs)
+
+        print ("UR3")
+        if self.MEANS is None:
+            self.MEANS = {  # expected mean of joints angles / velocities
+                'q':  np.array([3.06, .968, -.946, .2, 1.1, -.434]),
+                'dq':  np.array([1.21, .177, .54, -.64, -0.112, -1.898])
+                }
+
+        if self.SCALES is None:
+            self.SCALES = {  # expected variance of joint angles / velocities
+                'q':  np.array([2.0, 0.30, 0.9, 1.0, 0.97, 3.0]),
+                'dq': np.array([12.47, 2.5, 1.986, 3.374, 10.557, 6.223])
+                }
+
+        self._T = {}  # dictionary for storing calculated transforms
+
+        self.JOINT_NAMES = ['UR3_joint%i' % (ii+1)
+                            for ii in range(self.N_JOINTS)]
+
+        # for the null space controller, keep arm near these angles
+        self.REST_ANGLES = np.array([None,
+                                     np.pi/4.0,
+                                     -np.pi/2.0,
+                                     np.pi/4.0,
+                                     np.pi/2.0,
+                                     np.pi/2.0], dtype='float32')
+
+        # TODO: automate getting all this information from VREP
+
+        # create the inertia matrices for each link of the ur5
+        self._M_LINKS = []
+        self._M_LINKS.append(np.diag(3*[1.0] +[0.001, 0.001, 0.001]))           # link1
+        self._M_LINKS.append(np.diag(3*[2.0] +[0.00167, 0.001762, 0.001238]))   # link2
+        self._M_LINKS.append(np.diag(3*[3.42]+[0.08478, 0.0874, 0.009851]))     # link3
+        self._M_LINKS.append(np.diag(3*[1.26]+[0.0597, 0.06091, 0.0005315]))    # link4
+        self._M_LINKS.append(np.diag(3*[0.80]+[0.007461, 0.007624, 0.004633]))  # link5
+        self._M_LINKS.append(np.diag(3*[0.80]+[0.004669, 0.007785, 0.0076]))    # link6
+        self._M_LINKS.append(np.diag(3*[0.35]+[0.003870, 0.002621, 0.002621]))  # link7
+
+        # the joints don't weigh anything in VREP
+        self._M_JOINTS = [sp.zeros(6, 6) for ii in range(self.N_JOINTS)]
+
+        # segment lengths associated with each transform
+        # ignoring lengths < 1e-6
+
+
+        self.L = np.array([
+            [0., 0., 4.3026e-2], # link 1 offset
+            [0., 0., 1.04473e-01], # joint 1 offset
+            [-0.00015607,  0.00374297, -0.00045279], # link 2 offset
+            [-0.10792308,  0.00012492,  0.00485322], # joint 2 offset
+            [ 0.00015604, -0.11779135,  0.00385089], # link 3 offset
+            [ 3.85072827e-03, -8.02874565e-05,  1.25858754e-01], # joint 3 offset
+            [-0.00016269, -0.10396439, -0.08348219], # link 4 offset
+            [-0.08348159,  0.00011763,  0.10928559], # joint 4 offset
+            [ 5.41806221e-05, -1.23041868e-03, -5.76481223e-04], # link 5 offset
+            [-1.26052648e-03, -5.41768968e-05,  8.29870701e-02], # joint 5 offset
+            [ 4.18622047e-04,  1.89307332e-03, -6.80088997e-05], # link 6 offset
+            [ 0.00257716, -0.00041866,  0.00120044], # joint 6 offset
+            [ 9.45329666e-05, -1.93834305e-04,  6.63545132e-02]]) # link 7 offset
+
+        # ---- Joint Transform Matrices ----
+
+        # Transform matrix : origin -> link 0
+        # no change of axes, account for offsets
+        self.Torgl0 = sp.Matrix([
+            [1, 0, 0, self.L[0, 0]],
+            [0, 1, 0, self.L[0, 1]],
+            [0, 0, 1, self.L[0, 2]],
+            [0, 0, 0, 1]])
+
+        # Transform matrix : link 0 -> joint 0
+        # no change of axes, account for offsets
+        self.Tl0j0 = sp.Matrix([
+            [1, 0, 0, self.L[1, 0]],
+            [0, 1, 0, self.L[1, 1]],
+            [0, 0, 1, self.L[1, 2]],
+            [0, 0, 0, 1]])
+
+        # Transform matrix : joint 0 -> link 1
+        # account for rotations due to q
+        self.Tj0l1a = sp.Matrix([
+            [sp.cos(self.q[0]), -sp.sin(self.q[0]), 0, 0],
+            [sp.sin(self.q[0]), sp.cos(self.q[0]), 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1]])
+        # no change of axes, account for offsets
+        self.Tj0l1b = sp.Matrix([
+            [1, 0, 0, self.L[2, 0]],
+            [0, 1, 0, self.L[2, 1]],
+            [0, 0, 1, self.L[2, 2]],
+            [0, 0, 0, 1]])
+        self.Tj0l1 = self.Tj0l1a * self.Tj0l1b
+
+        # Transform matrix : link 1 -> joint 1
+        # account for axes rotation and offset
+        self.Tl1j1 = sp.Matrix([
+            [0, 0, -1, self.L[3, 0]],
+            [0, 1, 0, self.L[3, 1]],
+            [1, 0, 0, self.L[3, 2]],
+            [0, 0, 0, 1]])
+
+        # Transform matrix : joint 1 -> link 2
+        # account for rotations due to q
+        self.Tj1l2a = sp.Matrix([
+            [sp.cos(self.q[1]), -sp.sin(self.q[1]), 0, 0],
+            [sp.sin(self.q[1]), sp.cos(self.q[1]), 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1]])
+        # account for axes rotation and offsets
+        self.Tj1l2b = sp.Matrix([
+            [0, 0, 1, self.L[4, 0]],
+            [0, 1, 0, self.L[4, 1]],
+            [-1, 0, 0, self.L[4, 2]],
+            [0, 0, 0, 1]])
+        self.Tj1l2 = self.Tj1l2a * self.Tj1l2b
+
+        # Transform matrix : link 2 -> joint 2
+        # account for axes rotation and offsets
+        self.Tl2j2 = sp.Matrix([
+            [0, 0, -1, self.L[5, 0]],
+            [0, 1, 0, self.L[5, 1]],
+            [1, 0, 0, self.L[5, 2]],
+            [0, 0, 0, 1]])
+
+        # Transform matrix : joint 2 -> link 3
+        # account for rotations due to q
+        self.Tj2l3a = sp.Matrix([
+            [sp.cos(self.q[2]), -sp.sin(self.q[2]), 0, 0],
+            [sp.sin(self.q[2]), sp.cos(self.q[2]), 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1]])
+        # account for axes rotation and offsets
+        self.Tj2l3b = sp.Matrix([
+            [0, 0, 1, self.L[6, 0]],
+            [0, 1, 0, self.L[6, 1]],
+            [-1, 0, 0, self.L[6, 2]],
+            [0, 0, 0, 1]])
+        self.Tj2l3 = self.Tj2l3a * self.Tj2l3b
+
+        # Transform matrix : link 3 -> joint 3
+        # account for axes change and offsets
+        self.Tl3j3 = sp.Matrix([
+            [0, 0, -1, self.L[7, 0]],
+            [0, 1, 0, self.L[7, 1]],
+            [1, 0, 0, self.L[7, 2]],
+            [0, 0, 0, 1]])
+
+        # Transform matrix: joint 3 -> link 4
+        # account for rotations due to q
+        self.Tj3l4a = sp.Matrix([
+            [sp.cos(self.q[3]), -sp.sin(self.q[3]), 0, 0],
+            [sp.sin(self.q[3]), sp.cos(self.q[3]), 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1]])
+        # account for axes and rotation and offsets
+        self.Tj3l4b = sp.Matrix([
+            [0, 0, 1, self.L[8, 0]],
+            [0, 1, 0, self.L[8, 1]],
+            [-1, 0, 0, self.L[8, 2]],
+            [0, 0, 0, 1]])
+        self.Tj3l4 = self.Tj3l4a * self.Tj3l4b
+
+        # Transform matrix: link 4 -> joint 4
+        # no axes change, account for offsets
+        self.Tl4j4 = sp.Matrix([
+            [1, 0, 0, self.L[9, 0]],
+            [0, 1, 0, self.L[9, 1]],
+            [0, 0, 1, self.L[9, 2]],
+            [0, 0, 0, 1]])
+
+        # Transform matrix: joint 4 -> link 5
+        # account for rotations due to q
+        self.Tj4l5a = sp.Matrix([
+            [sp.cos(self.q[4]), -sp.sin(self.q[4]), 0, 0],
+            [sp.sin(self.q[4]), sp.cos(self.q[4]), 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1]])
+        # account for axes and rotation and offsets
+        # no axes change, account for offsets
+        self.Tj4l5b = sp.Matrix([
+            [1, 0, 0, self.L[10, 0]],
+            [0, 1, 0, self.L[10, 1]],
+            [0, 0, 1, self.L[10, 2]],
+            [0, 0, 0, 1]])
+        self.Tj4l5 = self.Tj4l5a * self.Tj4l5b
+
+        # Transform matrix : link 5 -> joint 5
+        # account for axes change and offsets
+        self.Tl5j5 = sp.Matrix([
+            [0, 0, -1, self.L[11, 0]],
+            [0, 1, 0, self.L[11, 1]],
+            [1, 0, 0, self.L[11, 2]],
+            [0, 0, 0, 1]])
+
+        # Transform matrix: joint 5 -> link 6
+        # account for rotations due to q
+        self.Tj5l6a = sp.Matrix([
+            [sp.cos(self.q[5]), -sp.sin(self.q[5]), 0, 0],
+            [sp.sin(self.q[5]), sp.cos(self.q[5]), 0, 0],
+            [0, 0, 1, 0],
+            [0, 0, 0, 1]])
+        # no axes change, account for offsets
+        self.Tj5l6b = sp.Matrix([
+            [1, 0, 0, self.L[12, 0]],
+            [0, 1, 0, self.L[12, 1]],
+            [0, 0, 1, self.L[12, 2]],
+            [0, 0, 0, 1]])
+        self.Tj5l6 = self.Tj5l6a * self.Tj5l6b
+
+        # orientation part of the Jacobian (compensating for angular velocity)
+        self.J_orientation = [
+            self._calc_T('joint0')[:3, :3] * self._KZ,  # joint 0 orientation
+            self._calc_T('joint1')[:3, :3] * self._KZ,  # joint 1 orientation
+            self._calc_T('joint2')[:3, :3] * self._KZ,  # joint 2 orientation
+            self._calc_T('joint3')[:3, :3] * self._KZ,  # joint 3 orientation
+            self._calc_T('joint4')[:3, :3] * self._KZ,  # joint 4 orientation
+            self._calc_T('joint5')[:3, :3] * self._KZ]  # joint 5 orientation
+
+    def _calc_T(self, name):  # noqa C907
+        """ Uses Sympy to generate the transform for a joint or link
+
+        name : string
+            name of the joint, link, or end-effector
+        """
+
+        if self._T.get(name, None) is None:
+            if name == 'link0':
+                self._T[name] = self.Torgl0
+            elif name == 'joint0':
+                self._T[name] = self._calc_T('link0') * self.Tl0j0
+            elif name == 'link1':
+                self._T[name] = self._calc_T('joint0') * self.Tj0l1
+            elif name == 'joint1':
+                self._T[name] = self._calc_T('link1') * self.Tl1j1
+            elif name == 'link2':
+                self._T[name] = self._calc_T('joint1') * self.Tj1l2
+            elif name == 'joint2':
+                self._T[name] = self._calc_T('link2') * self.Tl2j2
+            elif name == 'link3':
+                self._T[name] = self._calc_T('joint2') * self.Tj2l3
+            elif name == 'joint3':
+                self._T[name] = self._calc_T('link3') * self.Tl3j3
+            elif name == 'link4':
+                self._T[name] = self._calc_T('joint3') * self.Tj3l4
+            elif name == 'joint4':
+                self._T[name] = self._calc_T('link4') * self.Tl4j4
+            elif name == 'link5':
+                self._T[name] = self._calc_T('joint4') * self.Tj4l5
+            elif name == 'joint5':
+                self._T[name] = self._calc_T('link5') * self.Tl5j5
+            elif name == 'link6' or name == 'EE':
+                self._T[name] = self._calc_T('joint5') * self.Tj5l6
+
+            else:
+                raise Exception('Invalid transformation name: %s' % name)
+
+        return self._T[name]
