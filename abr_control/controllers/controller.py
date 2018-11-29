@@ -1,4 +1,4 @@
-class Controller:
+class Controller(object):
     """
     The base functions for all controllers
 

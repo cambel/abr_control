@@ -14,7 +14,7 @@ from abr_control.utils.paths import cache_dir
 # TODO : store lambdified functions, currently running into pickling errors
 # cloudpickle, dill, and pickle all run into problems
 
-class BaseConfig():
+class BaseConfig(object):
     """
     Defines useful functions for controlling a robot
 

@@ -1,4 +1,4 @@
-class Interface:
+class Interface(object):
     """ Base class for interfaces
 
     The purpose of interfaces is to abstract away the API

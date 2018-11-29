@@ -1,4 +1,4 @@
-class Signal:
+class Signal(object):
     """ Base class for additive control signals
 
     Parameters
