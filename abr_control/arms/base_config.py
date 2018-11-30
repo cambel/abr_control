@@ -109,12 +109,8 @@ class BaseConfig(object):
         # specify / create the folder to save to and load from
         self.config_folder = (cache_dir + '/%s/saved_functions/' % ROBOT_NAME)
         # create a unique hash for the config file
-        hasher = hashlib.md5()
-        with open(sys.modules[self.__module__].__file__, 'rb') as afile:
-            buf = afile.read()
-            hasher.update(buf)
-        self.config_hash = hasher.hexdigest()
-        self.config_folder += self.config_hash
+        # self.config_folder += self.config_hash # NOTE: why?
+
         # make config folder if it doesn't exist
         abr_control.utils.os_utils.makedirs(self.config_folder)
 
@@ -125,6 +121,13 @@ class BaseConfig(object):
         self.x = [sp.Symbol('x'), sp.Symbol('y'), sp.Symbol('z')]
 
         self.gravity = sp.Matrix([[0, 0, -9.81, 0, 0, 0]]).T
+    
+    def _gen_hash_name(self):
+        hasher = hashlib.md5()
+        with open(sys.modules[self.__module__].__file__, 'rb') as afile:
+            buf = afile.read()
+            hasher.update(buf)
+        self.config_hash = hasher.hexdigest()
 
     def _generate_and_save_function(self, filename, expression, parameters):
         """ Creates a folder, saves generated cython functions
@@ -138,13 +141,19 @@ class BaseConfig(object):
 
         # check for / create the save folder for this expression
         folder = self.config_folder + '/' + filename
-        abr_control.utils.os_utils.makedirs(folder)
+        if not os.path.exists(folder):
+            abr_control.utils.os_utils.makedirs(folder)
 
+        function = None
         if self.use_cython is True:
             # binaries saved by specifying tempdir parameter
             function = autowrap(expression, backend="cython",
                                 args=parameters, tempdir=folder)
-        function = sp.lambdify(parameters, expression, "numpy")
+        else:
+            function = sp.lambdify(parameters, expression, "numpy")
+            folder += '.f'
+            print "saving function:", folder, function
+            cloudpickle.dump(function, open(folder, 'wb'))
 
         return function
 
@@ -169,7 +178,7 @@ class BaseConfig(object):
         function = None
 
         # check for / create the save folder for this expression
-        folder = self.config_folder + '/' + filename
+        folder = self.config_folder
         if os.path.isdir(folder) is not False:
             # check to see should return function or expression
             if lambdify is True:
@@ -177,6 +186,7 @@ class BaseConfig(object):
                     # check for cython binaries
                     saved_file = [sf for sf in os.listdir(folder)
                                   if sf.endswith('.so')]
+                    print saved_file, folder
                     if len(saved_file) > 0:
                         # if found, load in function from file
                         print('Loading cython function from %s ...' % filename)
@@ -192,14 +202,21 @@ class BaseConfig(object):
                         # the cython autofunc wrapper is used after this.
                         if saved_file in sys.modules.keys():
                             del sys.modules[saved_file]
+                else:
+                    print('Loading function from %s ...' % filename)
+                    if os.path.exists('%s/%s.f' % (self.config_folder, filename)):
+                        function = cloudpickle.load(open(
+                            '%s/%s.f' % (self.config_folder, filename),
+                            'rb'))             
+                        print function  
 
             if function is None:
                 # if function not loaded, check for saved expression
-                if os.path.isfile('%s/%s/%s' %
-                                  (self.config_folder, filename, filename)):
+                if os.path.isfile('%s' %
+                                  (self.config_folder)):
                     print('Loading expression from %s ...' % filename)
                     expression = cloudpickle.load(open(
-                        '%s/%s/%s' % (self.config_folder, filename, filename),
+                        '%s' % (self.config_folder),
                         'rb'))
 
         return expression, function
@@ -425,9 +442,9 @@ class BaseConfig(object):
 
             # save to file
             abr_control.utils.os_utils.makedirs(
-                '%s/g' % self.config_folder)
+                '%s' % self.config_folder)
             cloudpickle.dump(g, open(
-                '%s/g/g' % self.config_folder, 'wb'))
+                '%s/g' % self.config_folder, 'wb'))
 
         if lambdify is False:
             # if should return expression not function
@@ -482,9 +499,9 @@ class BaseConfig(object):
 
             # save expression to file
             abr_control.utils.os_utils.makedirs(
-                '%s/%s' % (self.config_folder, filename))
+                '%s' % (self.config_folder))
             cloudpickle.dump(dJ, open(
-                '%s/%s/%s' % (self.config_folder, filename, filename), 'wb'))
+                '%s/%s' % (self.config_folder, filename), 'wb'))
 
         if lambdify is False:
             # if should return expression not function
@@ -556,9 +573,9 @@ class BaseConfig(object):
 
             # save to file
             abr_control.utils.os_utils.makedirs(
-                '%s/%s' % (self.config_folder, filename))
+                '%s' % (self.config_folder))
             cloudpickle.dump(J, open(
-                '%s/%s/%s' % (self.config_folder, filename, filename), 'wb'))
+                '%s/%s' % (self.config_folder, filename), 'wb'))
 
         if lambdify is False:
             # if should return expression not function
@@ -611,9 +628,9 @@ class BaseConfig(object):
 
             # save to file
             abr_control.utils.os_utils.makedirs(
-                '%s/M' % (self.config_folder))
+                '%s' % (self.config_folder))
             cloudpickle.dump(M, open(
-                '%s/M/M' % self.config_folder, 'wb'))
+                '%s/M' % self.config_folder, 'wb'))
 
         if lambdify is False:
             # if should return expression not function
@@ -650,9 +667,9 @@ class BaseConfig(object):
 
             # save to file
             abr_control.utils.os_utils.makedirs(
-                '%s/%s' % (self.config_folder, filename))
+                '%s' % (self.config_folder))
             cloudpickle.dump(sp.Matrix(R), open(
-                '%s/%s/%s' % (self.config_folder, filename, filename),
+                '%s/%s' % (self.config_folder, filename),
                 'wb'))
 
         if R_func is None:
@@ -702,9 +719,9 @@ class BaseConfig(object):
 
             # save to file
             abr_control.utils.os_utils.makedirs(
-                '%s/C' % self.config_folder)
+                '%s' % self.config_folder)
             cloudpickle.dump(C, open(
-                '%s/C/C' % self.config_folder, 'wb'))
+                '%s/C' % self.config_folder, 'wb'))
 
         if lambdify is False:
             # if should return expression not function
@@ -768,9 +785,9 @@ class BaseConfig(object):
 
             # save to file
             abr_control.utils.os_utils.makedirs(
-                '%s/%s' % (self.config_folder, filename))
+                '%s' % (self.config_folder))
             cloudpickle.dump(sp.Matrix(Tx), open(
-                '%s/%s/%s.Tx' % (self.config_folder, filename, filename),
+                '%s/%s' % (self.config_folder, filename),
                 'wb'))
 
         if lambdify is False:
@@ -820,9 +837,9 @@ class BaseConfig(object):
 
             # save to file
             abr_control.utils.os_utils.makedirs(
-                '%s/%s' % (self.config_folder, filename))
+                '%s' % (self.config_folder))
             cloudpickle.dump(T_inv, open(
-                '%s/%s.T_inv' % (self.config_folder, filename), 'wb'))
+                '%s.T_inv' % (self.config_folder), 'wb'))
 
         if lambdify is False:
             # if should return expression not function
